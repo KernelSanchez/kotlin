@@ -7,12 +7,8 @@ package org.jetbrains.kotlin.idea.debugger
 
 import com.intellij.debugger.engine.DebugProcessImpl
 import com.intellij.debugger.engine.DebuggerManagerThreadImpl
-import com.intellij.debugger.engine.evaluation.AbsentInformationEvaluateException
 import com.intellij.debugger.engine.events.DebuggerCommandImpl
 import com.intellij.debugger.impl.DebuggerContextImpl
-import com.intellij.debugger.impl.DebuggerUtilsEx
-import com.intellij.debugger.jdi.LocalVariableProxyImpl
-import com.intellij.debugger.jdi.StackFrameProxyImpl
 import com.intellij.psi.PsiElement
 import com.sun.jdi.*
 import com.sun.tools.jdi.LocalVariableImpl
@@ -21,6 +17,7 @@ import org.jetbrains.kotlin.codegen.binding.CodegenBinding.asmTypeForAnonymousCl
 import org.jetbrains.kotlin.codegen.coroutines.DO_RESUME_METHOD_NAME
 import org.jetbrains.kotlin.codegen.coroutines.INVOKE_SUSPEND_METHOD_NAME
 import org.jetbrains.kotlin.codegen.coroutines.continuationAsmTypes
+import org.jetbrains.kotlin.codegen.inline.INLINE_FUN_VAR_SUFFIX
 import org.jetbrains.kotlin.descriptors.PropertyDescriptor
 import org.jetbrains.kotlin.idea.codeInsight.CodeInsightUtils
 import org.jetbrains.kotlin.idea.debugger.evaluate.KotlinDebuggerCaches
@@ -35,93 +32,15 @@ import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.inline.InlineUtil
 import java.util.*
 
-fun StackFrameProxyImpl.visibleVariablesSafe(): List<LocalVariableProxyImpl> {
-    try {
-        return visibleVariables()
-    } catch (e: AbsentInformationEvaluateException) {
-        // Current implementation of visibleVariables() wraps an AbsentInformationException into EvaluateException
-        return emptyList()
-    } catch (e: AbsentInformationException) {
-        return emptyList()
+fun calculateInlineDepth(variableName: String): Int {
+    var lastIndex = variableName.lastIndex
+    var depth = 0
+
+    while (variableName.lastIndexOf(INLINE_FUN_VAR_SUFFIX, startIndex = lastIndex) >= 0) {
+        lastIndex -= INLINE_FUN_VAR_SUFFIX.length
+        depth++
     }
-}
-
-fun Method.safeAllLineLocations(): List<Location> {
-    return DebuggerUtilsEx.allLineLocations(this) ?: emptyList()
-}
-
-fun ReferenceType.safeAllLineLocations(): List<Location> {
-    return DebuggerUtilsEx.allLineLocations(this) ?: emptyList()
-}
-
-fun Method.safeLocationsOfLine(line: Int): List<Location> {
-    return try {
-        locationsOfLine(line)
-    } catch (e: AbsentInformationException) {
-        emptyList()
-    }
-}
-
-fun Method.safeVariables(): List<LocalVariable>? {
-    return try {
-        variables()
-    } catch (e: AbsentInformationException) {
-        null
-    }
-}
-
-fun Method.safeArguments(): List<LocalVariable>? {
-    return try {
-        arguments()
-    } catch (e: AbsentInformationException) {
-        null
-    }
-}
-
-fun Method.safeReturnType(): Type? {
-    return try {
-        returnType()
-    } catch (e: ClassNotLoadedException) {
-        null
-    }
-}
-
-fun LocalVariable.safeType(): Type? {
-    return try {
-        return type()
-    } catch (e: ClassNotLoadedException) {
-        null
-    }
-}
-
-fun Location.safeSourceName(): String? {
-    return try {
-        sourceName()
-    } catch (e: AbsentInformationException) {
-        null
-    } catch (e: InternalError) {
-        null
-    }
-}
-
-fun Location.safeLineNumber(): Int {
-    return DebuggerUtilsEx.getLineNumber(this, false)
-}
-
-fun Location.safeSourceLineNumber(): Int {
-    return DebuggerUtilsEx.getLineNumber(this, true)
-}
-
-fun Location.safeMethod(): Method? {
-    return DebuggerUtilsEx.getMethod(this)
-}
-
-fun isInsideInlineFunctionBody(visibleVariables: List<LocalVariable>): Boolean {
-    return visibleVariables.any { it.name().startsWith(JvmAbi.LOCAL_VARIABLE_NAME_PREFIX_INLINE_FUNCTION) }
-}
-
-fun numberOfInlinedFunctions(visibleVariables: List<LocalVariable>): Int {
-    return visibleVariables.count { it.name().startsWith(JvmAbi.LOCAL_VARIABLE_NAME_PREFIX_INLINE_FUNCTION) }
+    return depth
 }
 
 fun isInsideInlineArgument(
